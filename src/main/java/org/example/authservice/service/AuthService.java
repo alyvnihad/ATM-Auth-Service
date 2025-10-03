@@ -24,7 +24,7 @@ public class AuthService {
     @Value("${card.service.url}")
     private String cardUrl;
 
-    public void register(RegisterPayload payload){
+    public void register(RegisterPayload payload) {
         userRepository.findByEmail(payload.getEmail()).ifPresent(user -> {
             throw new RuntimeException("user email already exists");
         });
@@ -41,11 +41,12 @@ public class AuthService {
         registerPayload.setCurrency(payload.getCurrency());
 
         ResponseEntity<AccountResponse> voidResponseEntity = restTemplate.postForEntity(cardUrl + "/register", registerPayload, AccountResponse.class);
-        if (voidResponseEntity.getBody() !=null){
+        if (voidResponseEntity.getBody() != null) {
             user.setCardNumber(voidResponseEntity.getBody().getCardNumber());
         }
 
         userRepository.save(user);
-
     }
+
+
 }
