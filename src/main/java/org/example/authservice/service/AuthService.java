@@ -1,7 +1,9 @@
 package org.example.authservice.service;
 
 import lombok.RequiredArgsConstructor;
+import org.example.authservice.dto.AccountRequest;
 import org.example.authservice.dto.AccountResponse;
+import org.example.authservice.dto.CardRequest;
 import org.example.authservice.dto.UserDTO;
 import org.example.authservice.model.RefreshToken;
 import org.example.authservice.model.Role;
@@ -16,9 +18,6 @@ import org.example.authservice.security.JwtUtil;
 import org.example.authservice.security.SecurityFilter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
@@ -30,12 +29,12 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class AuthService {
 
-    private final AuthenticationManager authManager;
     private final SecurityFilter filter;
     private final UserRepository userRepository;
     private final RestTemplate restTemplate;
     private final JwtUtil jwtUtil;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final UserService userService;
 
     @Value("${card.service.url}")
     private String cardUrl;
@@ -48,27 +47,40 @@ public class AuthService {
         User user = new User();
         user.setName(payload.getName());
         user.setEmail(payload.getEmail());
-        user.setPinHash(filter.passwordEncoder(payload.getPin()));
+        user.setPinHash(filter.Encoder(payload.getPin()));
         user.setCurrency(payload.getCurrency());
         user.setRole(Role.CUSTOMER);
 
-        RegisterPayload registerPayload = new RegisterPayload();
-        registerPayload.setPin(payload.getPin());
-        registerPayload.setCurrency(payload.getCurrency());
+        CardRequest cardRequest = new CardRequest();
+        cardRequest.setPin(payload.getPin());
+        cardRequest.setCurrency(payload.getCurrency());
 
-        ResponseEntity<AccountResponse> voidResponseEntity = restTemplate.postForEntity(cardUrl + "/register", registerPayload, AccountResponse.class);
+        ResponseEntity<AccountResponse> voidResponseEntity = restTemplate.postForEntity(cardUrl + "/register", cardRequest, AccountResponse.class);
         if (voidResponseEntity.getBody() != null) {
             user.setCardNumber(voidResponseEntity.getBody().getCardNumber());
+            userRepository.save(user);
         }
 
         userRepository.save(user);
     }
 
     public UserDTO login(LoginPayload payload) {
-        Authentication authentication = authManager.authenticate(new UsernamePasswordAuthenticationToken(payload.getCardNumber(), payload.getPin()));
-        AuthenticationUser user = (AuthenticationUser) authentication.getPrincipal();
 
-        refreshTokenRepository.findByCardNumberAndExpiredFalse(user.getCardNumber()).ifPresent(
+        AccountRequest accountRequest = new AccountRequest();
+        accountRequest.setCardNumber(payload.getCardNumber());
+        accountRequest.setPin(payload.getPin());
+
+        ResponseEntity<Boolean> posted = restTemplate.postForEntity(cardUrl + "/pin-check", accountRequest, Boolean.class);
+
+        System.out.println(posted.getBody());
+        Boolean isCheck = posted.getBody();
+        if(!Boolean.TRUE.equals(isCheck)){
+            throw new RuntimeException("Card Number or pin invalid");
+        }
+
+        AuthenticationUser user = (AuthenticationUser) userService.loadUserByUsername(String.valueOf(payload.getCardNumber()));
+
+        refreshTokenRepository.findByCardNumberAndExpiredFalse(accountRequest.getCardNumber()).ifPresent(
                 refreshToken -> {
                     refreshToken.setExpired(true);
                     refreshTokenRepository.save(refreshToken);
