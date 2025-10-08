@@ -72,7 +72,6 @@ public class AuthService {
 
         ResponseEntity<Boolean> posted = restTemplate.postForEntity(cardUrl + "/pin-check", accountRequest, Boolean.class);
 
-        System.out.println(posted.getBody());
         Boolean isCheck = posted.getBody();
         if(!Boolean.TRUE.equals(isCheck)){
             throw new RuntimeException("Card Number or pin invalid");
