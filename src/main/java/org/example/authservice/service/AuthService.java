@@ -1,10 +1,8 @@
 package org.example.authservice.service;
 
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
-import org.example.authservice.dto.AccountRequest;
-import org.example.authservice.dto.AccountResponse;
-import org.example.authservice.dto.CardRequest;
-import org.example.authservice.dto.UserDTO;
+import org.example.authservice.dto.*;
 import org.example.authservice.model.RefreshToken;
 import org.example.authservice.model.Role;
 import org.example.authservice.model.User;
@@ -22,8 +20,13 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+/**
+ * User can register, log in and log out
+ * email is verified when registering, pin is checked when logging in
+ **/
 
 @Service
 @RequiredArgsConstructor
@@ -38,12 +41,20 @@ public class AuthService {
 
     @Value("${card.service.url}")
     private String cardUrl;
+    @Value("${notification.service.url}")
+    private String notificationUrl;
+    @Value("${report.service.url}")
+    private String reportUrl;
 
+    // Register new customer and send account info as PDF via email
+    @Transactional
     public void register(RegisterPayload payload) {
+        // Check if email already exists
         userRepository.findByEmail(payload.getEmail()).ifPresent(user -> {
             throw new RuntimeException("user email already exists");
         });
 
+        // Create new user
         User user = new User();
         user.setName(payload.getName());
         user.setEmail(payload.getEmail());
@@ -51,40 +62,74 @@ public class AuthService {
         user.setCurrency(payload.getCurrency());
         user.setRole(Role.CUSTOMER);
 
+        // Prepare request for Card microservice
         CardRequest cardRequest = new CardRequest();
         cardRequest.setPin(payload.getPin());
         cardRequest.setCurrency(payload.getCurrency());
+        cardRequest.setEmail(user.getEmail());
 
-        ResponseEntity<AccountResponse> voidResponseEntity = restTemplate.postForEntity(cardUrl + "/register", cardRequest, AccountResponse.class);
-        if (voidResponseEntity.getBody() != null) {
-            user.setCardNumber(voidResponseEntity.getBody().getCardNumber());
+        // Call Card service to create card
+        ResponseEntity<CardResponse> cardResponse = restTemplate.postForEntity(cardUrl + "/register", cardRequest, CardResponse.class);
+        if (cardResponse.getBody() != null) {
+            user.setCardNumber(cardResponse.getBody().getCardNumber());
             userRepository.save(user);
         }
+
+        // Prepare data for Report service (PDF generation)
+        ReportRequest reportRequest = new ReportRequest();
+
+        if (cardResponse.getBody() != null) {
+            reportRequest.setAccountNumber(cardResponse.getBody().getAccountNumber());
+            reportRequest.setName(user.getName());
+            reportRequest.setEmail(user.getEmail());
+            reportRequest.setCardNumber(user.getCardNumber());
+            reportRequest.setExpiryDate(LocalDate.now().plusYears(3));
+            reportRequest.setCurrency(user.getCurrency().toString());
+            reportRequest.setPaymentNetwork(cardResponse.getBody().getPaymentNetwork());
+        }
+
+        // Generate PDF report
+        ResponseEntity<String> reportResponse = restTemplate.postForEntity(reportUrl + "/pdf", reportRequest, String.class);
+        String filePath = reportResponse.getBody();
+
+        // Prepare notification request
+        NotificationRequest notificationRequest = new NotificationRequest();
+        notificationRequest.setTo(user.getEmail());
+        notificationRequest.setBody(user.getName());
+        notificationRequest.setFilePath(filePath);
+
+        //  Notification service call. Send email with PDF file
+        restTemplate.postForEntity(notificationUrl + "/register-send", notificationRequest, NotificationRequest.class);
 
         userRepository.save(user);
     }
 
+    // Login with card number and PIN
     public UserDTO login(LoginPayload payload) {
+
 
         AccountRequest accountRequest = new AccountRequest();
         accountRequest.setCardNumber(payload.getCardNumber());
         accountRequest.setPin(payload.getPin());
 
+        // Check card number and PIN from Card service
         ResponseEntity<Boolean> posted = restTemplate.postForEntity(cardUrl + "/pin-check", accountRequest, Boolean.class);
 
         Boolean isCheck = posted.getBody();
-        if(!Boolean.TRUE.equals(isCheck)){
+        if (!Boolean.TRUE.equals(isCheck)) {
             throw new RuntimeException("Card Number or pin invalid");
         }
 
         AuthenticationUser user = (AuthenticationUser) userService.loadUserByUsername(String.valueOf(payload.getCardNumber()));
 
+        // Disable old refresh token if exists
         refreshTokenRepository.findByCardNumberAndExpiredFalse(accountRequest.getCardNumber()).ifPresent(
                 refreshToken -> {
                     refreshToken.setExpired(true);
                     refreshTokenRepository.save(refreshToken);
                 });
 
+        // Create new refresh token
         RefreshToken refreshToken = new RefreshToken();
         refreshToken.setCardNumber(payload.getCardNumber());
         refreshToken.setToken(jwtUtil.generatedToken(user));
@@ -93,6 +138,7 @@ public class AuthService {
         refreshTokenRepository.save(refreshToken);
 
         String token = jwtUtil.generatedToken(user);
+
         UserDTO userDTO = new UserDTO();
         userDTO.setId(user.getId());
         userDTO.setCardNumber(user.getCardNumber());
@@ -106,12 +152,12 @@ public class AuthService {
         return userDTO;
     }
 
-
-    public void logout(RefreshTokenPayload payload){
+    // Logout and disable refresh token
+    public void logout(RefreshTokenPayload payload) {
         long cardNumber;
         try {
             cardNumber = Long.parseLong(jwtUtil.extractUsername(payload.getRefreshToken()));
-        }catch (Exception e){
+        } catch (Exception e) {
             throw new RuntimeException("Error not found token");
         }
 
