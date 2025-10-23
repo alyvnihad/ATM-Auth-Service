@@ -5,6 +5,7 @@ import org.example.authservice.model.Currency;
 
 @Data
 public class CardRequest {
+    private String email;
     private String pin;
     private Currency currency;
 }
