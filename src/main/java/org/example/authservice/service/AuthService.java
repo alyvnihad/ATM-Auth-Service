@@ -15,6 +15,8 @@ import org.example.authservice.security.AuthenticationUser;
 import org.example.authservice.security.JwtUtil;
 import org.example.authservice.security.SecurityFilter;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -98,8 +100,18 @@ public class AuthService {
         notificationRequest.setBody(user.getName());
         notificationRequest.setFilePath(filePath);
 
+        AuthenticationUser userDetails = (AuthenticationUser) userService.loadUserByUsername("register - "+ user.getEmail());
+
+        RefreshToken refreshToken = new RefreshToken();
+        refreshToken.setToken(jwtUtil.generatedToken(userDetails));
+        refreshTokenRepository.save(refreshToken);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(refreshToken.getToken());
+        HttpEntity<NotificationRequest> entity = new HttpEntity<>(notificationRequest,headers);
+
         //  Notification service call. Send email with PDF file
-        restTemplate.postForEntity(notificationUrl + "/register-send", notificationRequest, NotificationRequest.class);
+        restTemplate.postForEntity(notificationUrl + "/register-send", entity, NotificationRequest.class);
 
         userRepository.save(user);
     }
