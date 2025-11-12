@@ -3,6 +3,9 @@ package org.example.authservice.service;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.example.authservice.dto.*;
+import org.example.authservice.exception.NotFoundException;
+import org.example.authservice.exception.UnAuthorizedException;
+import org.example.authservice.exception.UsernameAlreadyExistsException;
 import org.example.authservice.model.RefreshToken;
 import org.example.authservice.model.Role;
 import org.example.authservice.model.User;
@@ -53,7 +56,7 @@ public class AuthService {
     public void register(RegisterPayload payload) {
         // Check if email already exists
         userRepository.findByEmail(payload.getEmail()).ifPresent(user -> {
-            throw new RuntimeException("user email already exists");
+            throw new UsernameAlreadyExistsException("user email already exists");
         });
 
         // Create new user
@@ -129,7 +132,7 @@ public class AuthService {
 
         Boolean isCheck = posted.getBody();
         if (!Boolean.TRUE.equals(isCheck)) {
-            throw new RuntimeException("Card Number or pin invalid");
+            throw new UnAuthorizedException("Card Number or pin invalid");
         }
 
         AuthenticationUser user = (AuthenticationUser) userService.loadUserByUsername(String.valueOf(payload.getCardNumber()));
@@ -170,7 +173,7 @@ public class AuthService {
         try {
             cardNumber = Long.parseLong(jwtUtil.extractUsername(payload.getRefreshToken()));
         } catch (Exception e) {
-            throw new RuntimeException("Error not found token");
+            throw new NotFoundException("Error not found token");
         }
 
         refreshTokenRepository.findByCardNumberAndToken(cardNumber, payload.getRefreshToken()).ifPresent(
