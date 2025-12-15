@@ -103,7 +103,7 @@ public class AuthService {
         notificationRequest.setBody(user.getName());
         notificationRequest.setFilePath(filePath);
 
-        AuthenticationUser userDetails = (AuthenticationUser) userService.loadUserByUsername("register - "+ user.getEmail());
+        AuthenticationUser userDetails = (AuthenticationUser) userService.loadUserByUsername(user.getCardNumber().toString());
 
         RefreshToken refreshToken = new RefreshToken();
         refreshToken.setToken(jwtUtil.generatedToken(userDetails));
